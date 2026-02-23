@@ -1,0 +1,20 @@
+name: MBwRF
+version: ${project.version}
+main: tynk.zim.mbwrf.MBwRFPlugin
+author: zim
+description: Custom respawn items addon for MBedwars
+depend: [MBedwars]
+api-version: 1.8
+
+commands:
+  rushfight:
+    description: RushFight commands
+    usage: /rushfight <editkit|resetkit|list|setkit|addmap|removemap|reload>
+
+permissions:
+  rushfight.admin:
+    description: Access to RushFight admin commands
+    default: op
+  rushfight.use:
+    description: Access to basic RushFight commands (editkit, resetkit, list)
+    default: true

@@ -1,0 +1,28 @@
+# MBwRF Configuration
+# Maps where default items will be replaced with custom kit
+
+enabled-maps:
+  - "Acacia"
+  - "Sandbox"
+  - "ExampleMap"
+
+# Kit given to players on respawn in enabled maps
+kit:
+  items:
+    1:
+      material: DIAMOND_SWORD
+      amount: 1
+      enchantments:
+        - "DAMAGE_ALL:1"
+    2:
+      material: BOW
+      amount: 1
+    3:
+      material: ARROW
+      amount: 16
+    4:
+      material: WOOL
+      amount: 32
+    5:
+      material: GOLDEN_APPLE
+      amount: 1
