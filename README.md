@@ -1,13 +1,13 @@
 # MBwRF
 
-A custom respawn items addon for MBedwars.
+A custom Rushfight mode for MBedwars.
 
 **Authors:** zimetuer, maciejk2  
 **License:** All Rights Reserved - See [LICENSE](LICENSE)
 
 ## Features
 
-- Custom kit system for Bedwars
+- Custom kit system for Rushfight
 - GUI-based kit editor
 - Per-player kit data with database storage
 - Map-specific configuration
