@@ -50,17 +50,53 @@ public class DatabaseManager {
         }
     }
     
+    private static final String CREATE_PLAYER_KITS_TABLE = 
+        "CREATE TABLE IF NOT EXISTS player_kits (" +
+        "uuid TEXT PRIMARY KEY, " +
+        "slots TEXT, " +
+        "helmet_slot INTEGER DEFAULT -1, " +
+        "chestplate_slot INTEGER DEFAULT -1, " +
+        "leggings_slot INTEGER DEFAULT -1, " +
+        "boots_slot INTEGER DEFAULT -1)";
+    
     private void createTables() throws SQLException {
-        String sql = "CREATE TABLE IF NOT EXISTS player_kits (" +
-                "uuid TEXT PRIMARY KEY, " +
-                "slots TEXT, " +
-                "helmet_slot INTEGER DEFAULT -1, " +
-                "chestplate_slot INTEGER DEFAULT -1, " +
-                "leggings_slot INTEGER DEFAULT -1, " +
-                "boots_slot INTEGER DEFAULT -1)";
-        
         try (Statement stmt = connection.createStatement()) {
-            stmt.execute(sql);
+            stmt.execute(CREATE_PLAYER_KITS_TABLE);
+        }
+        
+        applyMigrations();
+    }
+    
+    private void applyMigrations() {
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute("CREATE TABLE IF NOT EXISTS schema_version (" +
+                    "version INTEGER PRIMARY KEY, " +
+                    "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            
+            try (ResultSet rs = stmt.executeQuery("SELECT 1 FROM schema_version WHERE version = 1")) {
+                if (!rs.next()) {
+                    boolean hasNameColumn = false;
+                    try (ResultSet cols = stmt.executeQuery("PRAGMA table_info(player_kits)")) {
+                        while (cols.next()) {
+                            String columnName = cols.getString("name");
+                            if ("name".equalsIgnoreCase(columnName)) {
+                                hasNameColumn = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (hasNameColumn) {
+                        stmt.execute("DROP TABLE player_kits");
+                        stmt.execute(CREATE_PLAYER_KITS_TABLE);
+                        MBwRFPlugin.getInstance().getLogger().info("Migrated player_kits table to new schema");
+                    }
+                    
+                    stmt.execute("INSERT INTO schema_version (version) VALUES (1)");
+                }
+            }
+        } catch (SQLException e) {
+            MBwRFPlugin.getInstance().getLogger().warning("Failed to apply migrations: " + e.getMessage());
         }
     }
     
