@@ -1,6 +1,6 @@
 package tynk.zim.mbwrf.gui;
 
-import org.bukkit.Material;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -8,13 +8,10 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import tynk.zim.mbwrf.MapConfig;
 import tynk.zim.mbwrf.database.DatabaseManager;
 import tynk.zim.mbwrf.database.PlayerKitData;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,129 +37,132 @@ public class KitGUIListener implements Listener {
             return;
         }
         
+        UUID uuid = player.getUniqueId();
+        
+        // Save button
         if (slot == KitEditorGUI.SAVE_SLOT) {
-            handleSave(player, event.getInventory());
+            handleSave(player);
             player.closeInventory();
             return;
         }
         
+        // Reset button
         if (slot == KitEditorGUI.RESET_SLOT) {
             handleReset(player);
-            player.closeInventory();
             KitEditorGUI.open(player);
             return;
         }
         
-        if (slot >= 0 && slot < 36) {
-            handleSlotClick(player, slot, event.getInventory());
+        // Kit item selection (top row: slots 0-8)
+        if (slot >= KitEditorGUI.KIT_ROW_START && slot < KitEditorGUI.KIT_ROW_START + 9) {
+            handleKitItemSelect(player, slot);
+            return;
+        }
+        
+        // Assignment slots (rows 1-4: slots 9-44)
+        if (slot >= KitEditorGUI.ASSIGN_ROW_START && slot < KitEditorGUI.ASSIGN_ROW_START + KitEditorGUI.ASSIGN_SLOT_COUNT) {
+            handleAssignmentSlotClick(player, slot);
             return;
         }
     }
     
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (!KitEditorGUI.isKitEditorGUI(event.getView().getTitle())) {
-            return;
-        }
-        
-        for (int slot : event.getRawSlots()) {
-            if (KitEditorGUI.isActionButton(slot)) {
-                event.setCancelled(true);
-                return;
-            }
+        if (KitEditorGUI.isKitEditorGUI(event.getView().getTitle())) {
+            event.setCancelled(true);
         }
     }
     
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!KitEditorGUI.isKitEditorGUI(event.getView().getTitle())) {
-            return;
-        }
-        
-        KitEditorGUI.removeSession(event.getPlayer().getUniqueId());
-    }
-    
-    private void handleSlotClick(Player player, int slot, Inventory gui) {
-        List<ItemStack> kitItems = MapConfig.getInstance().getKitItems();
-        Map<Integer, ItemStack> sessionItems = KitEditorGUI.getSessionItems(player.getUniqueId());
-        
-        if (sessionItems == null) {
-            return;
-        }
-        
-        int nextIndex = findNextKitIndex(sessionItems, kitItems);
-        
-        if (nextIndex >= kitItems.size()) {
-            player.sendMessage(org.bukkit.ChatColor.RED + "No more kit items available!");
-            return;
-        }
-        
-        if (sessionItems.containsKey(slot)) {
-            sessionItems.remove(slot);
-            gui.setItem(slot, null);
-        } else {
-            ItemStack item = kitItems.get(nextIndex).clone();
-            gui.setItem(slot, item);
-            sessionItems.put(slot, item);
+        if (KitEditorGUI.isKitEditorGUI(event.getView().getTitle())) {
+            KitEditorGUI.clearSession(event.getPlayer().getUniqueId());
         }
     }
     
-    private int findNextKitIndex(Map<Integer, ItemStack> sessionItems, List<ItemStack> kitItems) {
-        List<ItemStack> usedItems = new ArrayList<>(sessionItems.values());
+    private void handleKitItemSelect(Player player, int slot) {
+        UUID uuid = player.getUniqueId();
+        List<ItemStack> kitItems = KitEditorGUI.getKitItems();
         
-        for (int i = 0; i < kitItems.size(); i++) {
-            boolean used = false;
-            for (ItemStack usedItem : usedItems) {
-                if (isSameItem(kitItems.get(i), usedItem)) {
-                    used = true;
+        int kitIndex = slot;
+        if (kitIndex < 0 || kitIndex >= kitItems.size()) {
+            return;
+        }
+        
+        KitEditorGUI.setSelectedKitItemIndex(uuid, kitIndex);
+        player.sendMessage(ChatColor.GREEN + "Selected: " + kitItems.get(kitIndex).getType().name());
+    }
+    
+    private void handleAssignmentSlotClick(Player player, int slot) {
+        UUID uuid = player.getUniqueId();
+        Map<Integer, Integer> slotMappings = KitEditorGUI.getSlotMappings(uuid);
+        List<ItemStack> kitItems = KitEditorGUI.getKitItems();
+        int selectedIndex = KitEditorGUI.getSelectedKitItemIndex(uuid);
+        
+        int inventorySlot = slot - KitEditorGUI.ASSIGN_ROW_START;
+        
+        // If clicking the same slot that already has this item, clear it
+        if (slotMappings.containsKey(inventorySlot) && slotMappings.get(inventorySlot) == selectedIndex) {
+            slotMappings.remove(inventorySlot);
+            player.getOpenInventory().getTopInventory().setItem(slot, KitEditorGUI.createSlotPlaceholder());
+            player.sendMessage(ChatColor.YELLOW + "Cleared inventory slot " + inventorySlot);
+            return;
+        }
+        
+        // If item is already placed elsewhere, remove it from that slot first
+        if (selectedIndex >= 0 && selectedIndex < kitItems.size()) {
+            Integer existingSlot = null;
+            for (Map.Entry<Integer, Integer> entry : slotMappings.entrySet()) {
+                if (entry.getValue() == selectedIndex) {
+                    existingSlot = entry.getKey();
                     break;
                 }
             }
-            if (!used) {
-                return i;
+            
+            if (existingSlot != null && existingSlot != inventorySlot) {
+                slotMappings.remove(existingSlot);
+                int existingGuiSlot = KitEditorGUI.ASSIGN_ROW_START + existingSlot;
+                player.getOpenInventory().getTopInventory().setItem(existingGuiSlot, KitEditorGUI.createSlotPlaceholder());
+                player.sendMessage(ChatColor.YELLOW + "Removed from slot " + existingSlot);
             }
         }
         
-        return kitItems.size();
+        // Check if slot already has something (different item) - replace it
+        if (slotMappings.containsKey(inventorySlot)) {
+            slotMappings.remove(inventorySlot);
+        }
+        
+        if (selectedIndex < 0 || selectedIndex >= kitItems.size()) {
+            player.sendMessage(ChatColor.RED + "Select a kit item first (click the top row)!");
+            return;
+        }
+        
+        // Assign selected item to this slot
+        slotMappings.put(inventorySlot, selectedIndex);
+        player.getOpenInventory().getTopInventory().setItem(slot, kitItems.get(selectedIndex).clone());
+        player.sendMessage(ChatColor.GREEN + "Inventory slot " + inventorySlot + " → " + kitItems.get(selectedIndex).getType().name());
     }
     
-    private boolean isSameItem(ItemStack a, ItemStack b) {
-        if (a == null || b == null) return false;
-        return a.getType() == b.getType() && a.getAmount() == b.getAmount();
-    }
-    
-    private void handleSave(Player player, Inventory gui) {
+    private void handleSave(Player player) {
+        UUID uuid = player.getUniqueId();
+        Map<Integer, Integer> slotMappings = KitEditorGUI.getSlotMappings(uuid);
+        
         PlayerKitData kitData = new PlayerKitData();
-        
-        Map<Integer, ItemStack> sessionItems = KitEditorGUI.getSessionItems(player.getUniqueId());
-        List<ItemStack> kitItems = MapConfig.getInstance().getKitItems();
-        
-        if (sessionItems != null) {
-            for (Map.Entry<Integer, ItemStack> entry : sessionItems.entrySet()) {
-                int slot = entry.getKey();
-                ItemStack item = entry.getValue();
-                
-                for (int i = 0; i < kitItems.size(); i++) {
-                    if (isSameItem(kitItems.get(i), item)) {
-                        kitData.setSlotMapping(slot, i);
-                        break;
-                    }
-                }
-            }
+        for (Map.Entry<Integer, Integer> entry : slotMappings.entrySet()) {
+            kitData.setSlotMapping(entry.getKey(), entry.getValue());
         }
         
-        tynk.zim.mbwrf.MBwRFPlugin.getInstance().getLogger().info(
-            "[RushFight] Saving kit for " + player.getName() + 
-            " (UUID: " + player.getUniqueId() + ")" +
-            " - mappings: " + kitData.getSlotMappings()
-        );
+        DatabaseManager.getInstance().savePlayerKitData(uuid, kitData);
         
-        DatabaseManager.getInstance().savePlayerKitData(player.getUniqueId(), kitData);
-        player.sendMessage(org.bukkit.ChatColor.GREEN + "Kit layout saved successfully!");
+        player.sendMessage(ChatColor.GREEN + "Kit saved!");
+        player.sendMessage(ChatColor.GRAY + "It will be applied in RushFight matches.");
     }
     
     private void handleReset(Player player) {
-        DatabaseManager.getInstance().deletePlayerKitData(player.getUniqueId());
-        player.sendMessage(org.bukkit.ChatColor.YELLOW + "Kit reset to default layout.");
+        UUID uuid = player.getUniqueId();
+        DatabaseManager.getInstance().deletePlayerKitData(uuid);
+        KitEditorGUI.clearSession(uuid);
+        player.sendMessage(ChatColor.YELLOW + "Reset to default. Reopening...");
+        KitEditorGUI.open(player);
     }
 }

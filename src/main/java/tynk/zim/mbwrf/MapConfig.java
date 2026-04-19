@@ -74,6 +74,9 @@ public class MapConfig {
         MBwRFPlugin.getInstance().getLogger().info(
             "Loaded " + enabledMaps.size() + " enabled maps, " + kitItems.size() + " kit items, and " + armorCount + " armor pieces."
         );
+        
+        // Invalidate kit GUI cache so it reloads fresh kit items
+        tynk.zim.mbwrf.gui.KitEditorGUI.invalidateCache();
     }
 
     private void loadArmorPiece(ConfigurationSection section, String key, int slot) {
