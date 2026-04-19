@@ -19,79 +19,125 @@ import java.util.UUID;
 
 public class KitEditorGUI {
     
-    public static final String GUI_TITLE = ChatColor.GOLD + "Edit Your Kit";
-    public static final int GUI_SIZE = 45;
+    // GUI layout
+    private static final int GUI_WIDTH = 9;
+    private static final int GUI_ROW_COUNT = 6;
+    public static final int GUI_SIZE = GUI_WIDTH * GUI_ROW_COUNT;
     
-    public static final int SAVE_SLOT = 40;
-    public static final int RESET_SLOT = 38;
-    public static final int HELMET_SLOT = 36;
-    public static final int CHESTPLATE_SLOT = 37;
-    public static final int LEGGINGS_SLOT = 42;
-    public static final int BOOTS_SLOT = 43;
+    // Slot definitions
+    public static final int KIT_ROW_START = 0;
+    public static final int ASSIGN_ROW_START = 9;
+    public static final int ASSIGN_SLOT_COUNT = 36;
+    public static final int BUTTON_ROW_START = 45;
+    public static final int SAVE_SLOT = 48;
+    public static final int RESET_SLOT = 50;
     
-    private static final Map<UUID, Map<Integer, ItemStack>> editingSessions = new HashMap<>();
+    private static final String GUI_TITLE = ChatColor.GOLD + "Edit Your Kit";
+    
+    // Session tracking
+    private static final Map<UUID, Integer> selectedKitItemIndex = new HashMap<>();
+    private static final Map<UUID, Map<Integer, Integer>> playerSlotMappings = new HashMap<>();
+    
+    // Cache
+    private static List<ItemStack> cachedKitItems = new ArrayList<>();
+    private static boolean cacheDirty = true;
+    
+    // Safe material getter for different Bukkit versions
+    private static Material getMaterialSafe(String... names) {
+        for (String name : names) {
+            Material mat = Material.getMaterial(name);
+            if (mat != null) return mat;
+        }
+        return Material.STONE; // fallback
+    }
     
     public static void open(Player player) {
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, GUI_TITLE);
+        if (cacheDirty) {
+            cachedKitItems = MapConfig.getInstance().getKitItems();
+            cacheDirty = false;
+        }
         
-        PlayerKitData kitData = DatabaseManager.getInstance().getPlayerKitData(player.getUniqueId());
-        List<ItemStack> kitItems = MapConfig.getInstance().getKitItems();
-        ItemStack[] kitArmor = MapConfig.getInstance().getKitArmor();
+        PlayerKitData savedData = DatabaseManager.getInstance().getPlayerKitData(player.getUniqueId());
+        Map<Integer, Integer> slotMappings = new HashMap<>(savedData.getSlotMappings());
+        playerSlotMappings.put(player.getUniqueId(), slotMappings);
         
-        Map<Integer, ItemStack> sessionItems = new HashMap<>();
+        selectedKitItemIndex.put(player.getUniqueId(), cachedKitItems.isEmpty() ? -1 : 0);
         
-        if (kitData.hasCustomLayout()) {
-            for (Map.Entry<Integer, Integer> entry : kitData.getSlotMappings().entrySet()) {
-                int slot = entry.getKey();
-                int itemIndex = entry.getValue();
-                
-                if (itemIndex >= 0 && itemIndex < kitItems.size() && slot >= 0 && slot < 36) {
-                    ItemStack item = kitItems.get(itemIndex).clone();
-                    gui.setItem(slot, item);
-                    sessionItems.put(slot, item);
-                }
-            }
-        } else {
-            for (int i = 0; i < kitItems.size() && i < 36; i++) {
-                ItemStack item = kitItems.get(i).clone();
-                gui.setItem(i, item);
-                sessionItems.put(i, item);
+        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, GUI_TITLE);
+        
+        // Row 0: Kit items (slots 0-8)
+        Material blackPane = getMaterialSafe("BLACK_STAINED_GLASS_PANE", "BLACK_GLASS_PANE", "STAINED_GLASS_PANE");
+        for (int i = 0; i < GUI_WIDTH; i++) {
+            if (i < cachedKitItems.size()) {
+                inv.setItem(i, cachedKitItems.get(i).clone());
+            } else {
+                inv.setItem(i, createPlaceholder(blackPane, " "));
             }
         }
         
-        editingSessions.put(player.getUniqueId(), sessionItems);
+        // Rows 1-4: Assignment slots (slots 9-44)
+        Material grayPane = getMaterialSafe("LIGHT_GRAY_STAINED_GLASS_PANE", "GRAY_STAINED_GLASS_PANE", "STAINED_GLASS_PANE");
+        for (int assignSlot = 0; assignSlot < ASSIGN_SLOT_COUNT; assignSlot++) {
+            int guiSlot = ASSIGN_ROW_START + assignSlot;
+            Integer kitIndex = slotMappings.get(assignSlot);
+            if (kitIndex != null && kitIndex >= 0 && kitIndex < cachedKitItems.size()) {
+                inv.setItem(guiSlot, cachedKitItems.get(kitIndex).clone());
+            } else {
+                inv.setItem(guiSlot, createSlotPlaceholder());
+            }
+        }
         
-        if (kitArmor[3] != null) gui.setItem(HELMET_SLOT, kitArmor[3].clone());
-        if (kitArmor[2] != null) gui.setItem(CHESTPLATE_SLOT, kitArmor[2].clone());
-        if (kitArmor[1] != null) gui.setItem(LEGGINGS_SLOT, kitArmor[1].clone());
-        if (kitArmor[0] != null) gui.setItem(BOOTS_SLOT, kitArmor[0].clone());
+        // Row 5: Buttons
+        inv.setItem(SAVE_SLOT, createSaveButton());
+        inv.setItem(RESET_SLOT, createResetButton());
         
-        gui.setItem(SAVE_SLOT, createSaveButton());
-        gui.setItem(RESET_SLOT, createResetButton());
-        
-        player.openInventory(gui);
+        player.openInventory(inv);
+    }
+    
+    private static ItemStack createPlaceholder(Material material, String name) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GRAY + name);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+    
+    public static ItemStack createSlotPlaceholder() {
+        Material grayPane = getMaterialSafe("LIGHT_GRAY_STAINED_GLASS_PANE", "GRAY_STAINED_GLASS_PANE", "STAINED_GLASS_PANE");
+        ItemStack item = new ItemStack(grayPane);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(" ");
+            item.setItemMeta(meta);
+        }
+        return item;
     }
     
     private static ItemStack createSaveButton() {
         ItemStack item = new ItemStack(Material.EMERALD);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.GREEN + "Save Kit");
-        List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "Click to save your kit layout");
-        meta.setLore(lore);
-        item.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GREEN + "Save Kit");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Click to save your layout");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
         return item;
     }
     
     private static ItemStack createResetButton() {
         ItemStack item = new ItemStack(Material.BARRIER);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.RED + "Reset to Default");
-        List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "Click to reset your kit");
-        lore.add(ChatColor.GRAY + "to the default layout");
-        meta.setLore(lore);
-        item.setItemMeta(meta);
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.RED + "Reset to Default");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Click to reset to default");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
         return item;
     }
     
@@ -99,17 +145,31 @@ public class KitEditorGUI {
         return GUI_TITLE.equals(title);
     }
     
-    public static Map<Integer, ItemStack> getSessionItems(UUID uuid) {
-        return editingSessions.get(uuid);
+    public static int getSelectedKitItemIndex(UUID uuid) {
+        Integer idx = selectedKitItemIndex.get(uuid);
+        return idx != null ? idx : -1;
     }
     
-    public static void removeSession(UUID uuid) {
-        editingSessions.remove(uuid);
+    public static void setSelectedKitItemIndex(UUID uuid, int index) {
+        selectedKitItemIndex.put(uuid, index);
     }
     
-    public static boolean isActionButton(int slot) {
-        return slot == SAVE_SLOT || slot == RESET_SLOT || 
-               slot == HELMET_SLOT || slot == CHESTPLATE_SLOT || 
-               slot == LEGGINGS_SLOT || slot == BOOTS_SLOT;
+    public static Map<Integer, Integer> getSlotMappings(UUID uuid) {
+        return playerSlotMappings.computeIfAbsent(uuid, k -> new HashMap<>());
     }
+    
+    public static List<ItemStack> getKitItems() {
+        return new ArrayList<>(cachedKitItems);
+    }
+    
+    public static void invalidateCache() {
+        cacheDirty = true;
+    }
+    
+    public static void clearSession(UUID uuid) {
+        selectedKitItemIndex.remove(uuid);
+        playerSlotMappings.remove(uuid);
+    }
+    
+
 }
